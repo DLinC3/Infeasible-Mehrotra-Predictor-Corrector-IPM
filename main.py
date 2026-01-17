@@ -4,7 +4,7 @@ import jax.scipy as jsp
 import matplotlib.pyplot as plt
 
 from solvers import PDIPSolver
-from qp_tester import PDIPTester
+from tester import PDIPTester
 
 P = jnp.array([[2.0, 0, 0, 0], [0, 2., 0, 0], [0, 0, 2., 0], [0., 0, 0, 1.]])
 p = jnp.array([1.0, -2., 1.0, 2.])
