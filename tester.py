@@ -9,7 +9,7 @@ from typing import Callable, Iterable, Tuple
 from microQPSWIFT import microQPSWIFTSolver
 
 
-class PDIPTester:
+class Tester:
     def __init__(
         self,
         P: jax.Array,

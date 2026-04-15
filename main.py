@@ -4,7 +4,7 @@ import jax.scipy as jsp
 import matplotlib.pyplot as plt
 
 from microQPSWIFT import microQPSWIFTSolver
-from tester import PDIPTester
+from tester import Tester
 
 
 P = jnp.array([[2.0, 0, 0, 0], [0, 2.0, 0, 0], [0, 0, 2.0, 0], [0.0, 0, 0, 1.0]])
