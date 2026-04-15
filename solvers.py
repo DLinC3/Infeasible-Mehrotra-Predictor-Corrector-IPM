@@ -12,7 +12,7 @@ class PDIPSolver:
         s.t. A x = b,  G x + s = h,  s >= 0,  z >= 0.
 
     Uses affine-scaling + centering/corrector with sigma from predicted gap,
-    and positivity step limit alpha_max (no residual-norm backtracking here).
+    and positivity step limit alpha_max (without residual-norm backtracking).
     """
     def __init__(self, max_qp_iter: int = 50, tol: float = 1e-15):
         """Set iteration cap and convergence tolerance."""
@@ -36,7 +36,7 @@ class PDIPSolver:
         self._h = None
 
     def init_problem(self, Q: jax.Array, q: jax.Array, A: jax.Array, b: jax.Array, G: jax.Array, h: jax.Array) -> None:
-        """Store QP data (symmetrize Q) and validate shapes."""
+        """Store QP data (symmetrize Q) and validate shapes for general QP"""
         self._Q = 0.5 * (Q + Q.T)
         self._q = q
         self.nx = q.size
@@ -86,7 +86,7 @@ class PDIPSolver:
 
     def compute_residuals(self, xbar: jax.Array, sbar: jax.Array, zbar: jax.Array, ybar: jax.Array):
         """
-        Residual RHS (already negated) for Newton/KKT solve:
+        Residual RHS for Newton/KKT solve:
           r1=-(Qx+q+A^Ty+G^Tz), r2=-(S z), r3=-(Gx+s-h), r4=-(Ax-b).
         """
         r1 = -(self._Q @ xbar + self._q + self._A.T @ ybar + self._G.T @ zbar)
