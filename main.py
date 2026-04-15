@@ -22,5 +22,5 @@ G_ineq = jnp.array(
 )
 h_ineq = jnp.array([15.5, -15, 15.0])
 
-tester = PDIPTester(P, p, A_eq, b_eq, G_ineq, h_ineq)
+tester = Tester(P, p, A_eq, b_eq, G_ineq, h_ineq)
 tester.compare_solutions()
