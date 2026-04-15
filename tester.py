@@ -28,7 +28,6 @@ class PDIPTester():
         self.cost_tol = cost_tol
         self.primal_tol = primal_tol
 
-        # Initialize JAX solver
         self.solver = PDIPSolver()
         self.solver.init_problem(self.P, self.p, self.A, self.b, self.G, self.h)
 
@@ -36,7 +35,6 @@ class PDIPTester():
         costs = self.solver.solve_qp(verbose=True)
         nx = self.P.shape[1]
 
-        # Create equivalent QP inside CVXPY
         Z = cp.Variable(shape=(nx))
         cvx_cost = cp.quad_form(Z[:], 0.5*self.P) + Z[:].T @ self.p
         constraints = []
