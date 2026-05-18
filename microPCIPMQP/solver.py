@@ -6,7 +6,7 @@ import numpy as np
 from typing import Tuple
 
 
-class microQPSWIFTSolver:
+class microPCIPMQPSolver:
     """
     Mehrotra-style primal-dual interior-point method for convex QPs:
 

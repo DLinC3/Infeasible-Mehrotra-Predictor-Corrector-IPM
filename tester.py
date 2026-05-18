@@ -6,7 +6,7 @@ import cvxpy as cp
 
 from typing import Callable, Iterable, Tuple
 
-from microQPSWIFT import microQPSWIFTSolver
+from microPCIPMQP import microPCIPMQPSolver
 
 
 class Tester:
@@ -39,7 +39,7 @@ class Tester:
         self.cost_tol = cost_tol
         self.primal_tol = primal_tol
 
-        self.solver = microQPSWIFTSolver()
+        self.solver = microPCIPMQPSolver()
         self.solver.init_problem(self.P, self.p, self.A, self.b, self.G, self.h)
 
     def compare_solutions(self) -> bool:
