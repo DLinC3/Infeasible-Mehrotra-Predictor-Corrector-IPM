@@ -6,10 +6,10 @@ predictor-corrector method: each iteration reduces the four-block Newton
 system, factors one KKT matrix, and reuses that single factorization for both
 the affine predictor and the centered corrector directions.
 
-The whole project is one solver module and one executable notebook. The
-notebook runs the canonical experiment — a fixed pentagon with a known
-boundary optimum, solved in 6 iterations with 6 factorizations and 12 Newton
-solves — and re-derives every correctness claim it prints.
+The repository contains one solver module and one executable notebook. The
+notebook uses a fixed pentagon with a known boundary optimum, solved in 6
+iterations with 6 factorizations and 12 Newton solves, and checks the reported
+results against independent calculations.
 
 ![Predictor and corrector on the pentagon](assets/predict_correct.png)
 
@@ -25,13 +25,13 @@ repository root:
 JAX_PLATFORMS=cpu uv run --group notebook jupyter execute central_path.ipynb
 ```
 
-Success is silent: every cell asserts what it claims, and the two figures in
-this README are regenerated in `assets/`. Opening the notebook shows the
-iteration ledger, an independent full four-block Newton reference, an exact
+The notebook runs its validation checks and regenerates the two figures in
+`assets/`. Opening it shows the iteration ledger, an independent full
+four-block Newton reference, an exact
 rational audit of the first iteration, trajectory and JIT parity checks, and
 an OSQP comparison.
 
-The solver itself is three lines:
+Basic usage:
 
 ```python
 solver = barrierqp.Solver(P, q, A, b, G, h)
@@ -59,19 +59,20 @@ where $P \succ 0$. Inequalities use positive slacks $s=h-Gx$, equality duals
 $y$, and positive inequality duals $z$. The implementation permits zero
 equality rows but requires at least one inequality.
 
-## Mechanism, measured
+## Method and example results
 
-Each iteration asks one LU factorization two Newton questions. The affine
-answer prices how much complementarity a pure Newton step could remove; the
-cubed ratio $\sigma = (\mu_{\mathrm{aff}} / \mu)^3$ then sets the centering
+Each iteration reuses one LU factorization for the affine predictor and the
+centered corrector. The affine direction estimates how much complementarity
+a pure Newton step could remove; the cubed ratio
+$\sigma = (\mu_{\mathrm{aff}} / \mu)^3$ then sets the centering
 in the corrector, which also carries the second-order term
 $\Delta s_{\mathrm{aff}} \circ \Delta z_{\mathrm{aff}}$.
 
 ![Predicted and accepted complementarity](assets/complementarity.png)
 
 The affine point predicts the attainable gap; the accepted point above it
-includes centering and the second-order correction. On the canonical
-pentagon the notebook measures:
+includes centering and the second-order correction. For the pentagon example,
+the notebook reports:
 
 ```text
 6 iterations, 6 factorizations, 12 Newton solves
@@ -79,17 +80,16 @@ max full/reduced direction difference: 2.09e-15 (pentagon), 1.93e-12 (all fixtur
 final KKT residual: 8.47e-10
 ```
 
-## The two files that matter
+## Project structure
 
-1. [`barrierqp.py`](barrierqp.py) (297 lines) — the `Solver` facade over a
-   pure, chronological JAX core: residuals, reduced KKT matrix, one LU
+1. [`barrierqp.py`](barrierqp.py) (297 lines) contains the `Solver` facade,
+   residuals, reduced KKT matrix, one LU
    factorization, affine solve, $\mu_{\mathrm{aff}}$ and $\sigma$, corrector
    solve, fraction-to-boundary steps, stop test.
-2. [`central_path.ipynb`](central_path.ipynb) (16 cells) — the executable
-   specification: it runs the pentagon experiment, regenerates both figures,
-   and checks every predictor and corrector direction against an
-   independently written eager four-block reference, an exact
-   `fractions.Fraction` first-iteration audit, and OSQP.
+2. [`central_path.ipynb`](central_path.ipynb) (16 cells) runs the pentagon
+   example and regenerates both figures. Its checks include an independent
+   eager four-block reference, an exact `fractions.Fraction` audit of the
+   first iteration, and a final comparison with OSQP.
 
 ## Design
 
@@ -99,7 +99,7 @@ framework for model predictive control*](https://arxiv.org/pdf/2003.02547).
 
 ## Validation
 
-The notebook is the test suite. In one linear pass it asserts:
+The notebook contains the validation checks:
 
 - the first iteration on an integer fixture against exact
   `fractions.Fraction` arithmetic, derived in the notebook itself;
