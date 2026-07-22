@@ -2,3 +2,5 @@
 __pycache__/
 .jax_cache/
 *.pyc
+.ipynb_checkpoints/
+_*.ipynb
