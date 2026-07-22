@@ -96,13 +96,15 @@ for name, prob in fixtures.items():
         assert np.all(np.asarray(tr.s) > 0) and np.all(np.asarray(tr.z) > 0)
         assert float(tr.linear_residual) < 1e-10
 
-    # the compiled while_loop must land exactly where the traced loop landed
+    # The compiled while_loop must land where the traced loop landed. The two
+    # are differently compiled XLA programs, so allow device-level rounding
+    # noise but nothing an extra or missing iteration could survive.
     compiled = barrierqp.solve(*prob)
     assert compiled.status == result.status
     assert compiled.iterations == result.iterations
     for field in STATE_FIELDS:
         assert_allclose(np.asarray(getattr(compiled, field)),
-                        np.asarray(getattr(result, field)), rtol=0, atol=1e-12)
+                        np.asarray(getattr(result, field)), rtol=1e-9, atol=1e-11)
 
     # the jitted step is the eager step (same function, staged once)
     problem = barrierqp.Problem(*prob)
