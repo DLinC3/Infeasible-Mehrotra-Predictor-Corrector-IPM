@@ -81,7 +81,7 @@ final KKT residual: 8.47e-10
 
 ## The two files that matter
 
-1. [`barrierqp.py`](barrierqp.py) (346 lines) — the `Solver` facade over a
+1. [`barrierqp.py`](barrierqp.py) (329 lines) — the `Solver` facade over a
    pure, chronological JAX core: residuals, reduced KKT matrix, one LU
    factorization, affine solve, $\mu_{\mathrm{aff}}$ and $\sigma$, corrector
    solve, fraction-to-boundary steps, stop test.
