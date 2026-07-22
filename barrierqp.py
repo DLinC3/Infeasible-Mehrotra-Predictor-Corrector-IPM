@@ -47,8 +47,40 @@ class State(NamedTuple):
     iteration: jax.Array  # int scalar; also the factorization count
 
 
-class Trace(NamedTuple):
+class StepTrace(NamedTuple):
     """Everything one iteration computed, in causal order, for inspection."""
+    iteration: jax.Array
+    x: jax.Array
+    y: jax.Array
+    z: jax.Array
+    s: jax.Array
+    r_eq: jax.Array
+    r_ineq: jax.Array
+    r_dual: jax.Array
+    mu: jax.Array
+    eps_primal: jax.Array
+    eps_dual: jax.Array
+    eps_gap: jax.Array
+    dx_aff: jax.Array
+    dy_aff: jax.Array
+    dz_aff: jax.Array
+    ds_aff: jax.Array
+    alpha_aff_primal: jax.Array
+    alpha_aff_dual: jax.Array
+    mu_aff: jax.Array
+    sigma: jax.Array
+    dx: jax.Array
+    dy: jax.Array
+    dz: jax.Array
+    ds: jax.Array
+    alpha_primal: jax.Array
+    alpha_dual: jax.Array
+    linear_residual: jax.Array
+
+
+class Trace(NamedTuple):
+    """A whole run's StepTrace fields stacked with a leading iteration axis,
+    so trace.x[k] is iteration k's iterate and trace.mu is the mu sequence."""
     iteration: jax.Array
     x: jax.Array
     y: jax.Array
@@ -201,7 +233,7 @@ def step(problem, state, eps_abs, eps_rel):
     # Stopping is judged only on the newly accepted iterate, never the raw start.
     done = stop_test(problem, x_new, y_new, z_new, s_new, eps_abs, eps_rel)
     new_state = State(x_new, y_new, z_new, s_new, done, state.iteration + 1)
-    trace = Trace(
+    trace = StepTrace(
         iteration=state.iteration, x=x, y=y, z=z, s=s,
         r_eq=r_eq, r_ineq=r_ineq, r_dual=r_dual, mu=mu,
         eps_primal=eps_p, eps_dual=eps_d, eps_gap=eps_g,
@@ -242,7 +274,7 @@ def _check_problem(problem, eps_abs, eps_rel, max_iter):
     assert eps_abs > 0 and eps_rel >= 0 and max_iter >= 1
 
 
-def _result(problem, state):
+def _result(state):
     iterations = int(state.iteration)  # host conversion; also synchronizes the device
     return Result(x=state.x, y=state.y, z=state.z, s=state.s,
                   status="solved" if bool(state.converged) else "max_iter",
@@ -250,26 +282,65 @@ def _result(problem, state):
                   newton_solves=2 * iterations)
 
 
-def solve(P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8, max_iter=50):
-    """Compiled solve: the fixed-shape while_loop around the one pure step."""
-    problem = Problem(*map(jnp.asarray, (P, q, A, b, G, h)))
-    _check_problem(problem, eps_abs, eps_rel, max_iter)
+class Solver:
+    """Host-side facade over the pure JAX core.
+
+    Construction converts and validates the problem data once; the instance
+    then holds only the immutable Problem pytree and scalar configuration.
+    Solver never enters jit and is never mutated by a solve: both methods
+    hand all numerical state to the module-level transformed functions.
+    """
+
+    def __init__(self, P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8,
+                 max_iter=50):
+        problem = Problem(*(jnp.asarray(v, dtype=jnp.float64)
+                            for v in (P, q, A, b, G, h)))
+        _check_problem(problem, eps_abs, eps_rel, max_iter)
+        self.problem = problem
+        # Plain host floats/ints: passed to jit as dynamic operands, so
+        # changing a tolerance or the cap never triggers recompilation.
+        self.eps_abs = float(eps_abs)
+        self.eps_rel = float(eps_rel)
+        self.max_iter = int(max_iter)
+
+    def solve(self):
+        """Compiled solve: the fixed-shape while_loop around the one pure step."""
+        state = init_state(self.problem)
+        assert bool(jnp.all(state.s > 0) and jnp.all(state.z > 0))
+        state = _solve_loop_jit(self.problem, state, self.eps_abs,
+                                self.eps_rel, self.max_iter)
+        return _result(state)
+
+    def trace(self):
+        """Explanatory solve: the same jitted step driven from a Python loop,
+        returning every iteration's record stacked along a leading axis."""
+        state, steps = _host_loop(self.problem, self.eps_abs, self.eps_rel,
+                                  self.max_iter)
+        # Stacking each StepTrace leaf over iterations turns the list of
+        # per-step pytrees into one Trace of (N, ...) arrays.
+        trace = Trace(*jax.tree.map(lambda *leaves: jnp.stack(leaves), *steps))
+        return _result(state), trace
+
+
+def _host_loop(problem, eps_abs, eps_rel, max_iter):
     state = init_state(problem)
     assert bool(jnp.all(state.s > 0) and jnp.all(state.z > 0))
-    state = _solve_loop_jit(problem, state, eps_abs, eps_rel, max_iter)
-    return _result(problem, state)
-
-
-def solve_trace(P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8, max_iter=50):
-    """Explanatory solve: the same jitted step driven from a Python loop so each
-    iteration's Trace can be kept. Snapshots are appended only after the
-    transformed call returns concrete arrays."""
-    problem = Problem(*map(jnp.asarray, (P, q, A, b, G, h)))
-    _check_problem(problem, eps_abs, eps_rel, max_iter)
-    state = init_state(problem)
-    traces = []
+    steps = []
     # bool() forces device-to-host sync: loop control needs a concrete value.
     while not bool(state.converged) and int(state.iteration) < max_iter:
         state, trace = _step(problem, state, eps_abs, eps_rel)
-        traces.append(trace)
-    return _result(problem, state), traces
+        steps.append(trace)
+    return state, steps
+
+
+def solve(P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8, max_iter=50):
+    """Compatibility wrapper for the pre-facade API."""
+    return Solver(P, q, A, b, G, h, eps_abs, eps_rel, max_iter).solve()
+
+
+def solve_trace(P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8, max_iter=50):
+    """Compatibility wrapper returning the per-iteration StepTrace list."""
+    solver = Solver(P, q, A, b, G, h, eps_abs, eps_rel, max_iter)
+    state, steps = _host_loop(solver.problem, solver.eps_abs, solver.eps_rel,
+                              solver.max_iter)
+    return _result(state), steps
