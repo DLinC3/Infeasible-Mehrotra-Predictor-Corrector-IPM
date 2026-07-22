@@ -134,7 +134,3 @@ positivity, and the final objective, solution, and KKT residuals with OSQP.
 - [JAX documentation](https://docs.jax.dev/) and
   [QPAX](https://github.com/qpax-solver/qpax) for factor/solve and compiled-loop
   patterns in JAX.
-
-## License
-
-No license file is currently included.
