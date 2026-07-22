@@ -12,8 +12,7 @@ from jax.scipy.linalg import lu_factor, lu_solve
 TAU = 0.99  # fixed fraction-to-boundary damping for accepted steps
 
 
-class Problem(NamedTuple):
-    """Fixed QP data."""
+class Problem(NamedTuple):  # Fixed arrays form a pytree that jit can traverse.
     P: jax.Array  # (n, n) symmetric positive definite
     q: jax.Array  # (n,)
     A: jax.Array  # (m_eq, n), m_eq may be 0
@@ -22,8 +21,7 @@ class Problem(NamedTuple):
     h: jax.Array  # (m_in,)
 
 
-class State(NamedTuple):
-    """Primal-dual iterate."""
+class State(NamedTuple):  # Primal-dual pytree carried by lax.while_loop.
     x: jax.Array
     y: jax.Array
     z: jax.Array
@@ -32,8 +30,7 @@ class State(NamedTuple):
     iteration: jax.Array  # int scalar; also the factorization count
 
 
-class StepTrace(NamedTuple):
-    """Named values from one iteration."""
+class StepTrace(NamedTuple):  # Named values exposed from one iteration.
     iteration: jax.Array
     x: jax.Array
     y: jax.Array
@@ -63,8 +60,7 @@ class StepTrace(NamedTuple):
     linear_residual: jax.Array
 
 
-class Trace(NamedTuple):
-    """Iteration records stacked along the leading axis."""
+class Trace(NamedTuple):  # Step records stacked along the iteration axis.
     iteration: jax.Array
     x: jax.Array
     y: jax.Array
@@ -94,7 +90,7 @@ class Trace(NamedTuple):
     linear_residual: jax.Array
 
 
-class Result(NamedTuple):
+class Result(NamedTuple):  # Final solution and factor/solve counts.
     x: jax.Array
     y: jax.Array
     z: jax.Array
@@ -105,19 +101,18 @@ class Result(NamedTuple):
     newton_solves: int   # = 2 * iterations: affine + corrector per factor
 
 
-def inf_norm(v):
-    return jnp.max(jnp.abs(v), initial=0.0)  # initial=0 keeps empty r_eq legal when m_eq == 0
+def inf_norm(v):  # Infinity norm that also accepts an empty equality residual.
+    return jnp.max(jnp.abs(v), initial=0.0)
 
 
-def init_state(problem):
-    """Return the fixed positive starting point."""
+def init_state(problem):  # Fixed start with positive slack and inequality dual.
     n, m_eq, m_in = problem.q.shape[0], problem.b.shape[0], problem.h.shape[0]
     return State(x=jnp.zeros(n), y=jnp.zeros(m_eq),
                  z=jnp.ones(m_in), s=jnp.ones(m_in),
                  converged=jnp.asarray(False), iteration=jnp.asarray(0))
 
 
-def residuals(problem, x, y, z, s):
+def residuals(problem, x, y, z, s):  # KKT residuals and complementarity.
     P, q, A, b, G, h = problem
     r_dual = P @ x + q + A.T @ y + G.T @ z
     r_eq = A @ x - b
@@ -126,8 +121,7 @@ def residuals(problem, x, y, z, s):
     return r_dual, r_eq, r_ineq, mu
 
 
-def tolerances(problem, x, y, z, s, eps_abs, eps_rel):
-    """Absolute-plus-relative stopping thresholds."""
+def tolerances(problem, x, y, z, s, eps_abs, eps_rel):  # Scaled stop thresholds.
     P, q, A, b, G, h = problem
     eps_p = eps_abs + eps_rel * jnp.max(jnp.array(
         [inf_norm(A @ x), inf_norm(b), inf_norm(G @ x), inf_norm(s), inf_norm(h)]))
@@ -137,15 +131,14 @@ def tolerances(problem, x, y, z, s, eps_abs, eps_rel):
     return eps_p, eps_d, eps_g
 
 
-def stop_test(problem, x, y, z, s, eps_abs, eps_rel):
+def stop_test(problem, x, y, z, s, eps_abs, eps_rel):  # Primal, dual, and gap test.
     r_dual, r_eq, r_ineq, _ = residuals(problem, x, y, z, s)
     eps_p, eps_d, eps_g = tolerances(problem, x, y, z, s, eps_abs, eps_rel)
     pres = jnp.maximum(inf_norm(r_eq), inf_norm(r_ineq))
     return (pres <= eps_p) & (inf_norm(r_dual) <= eps_d) & (s @ z <= eps_g)
 
 
-def form_kkt(problem, D):
-    """Reduced KKT matrix after eliminating slack directions."""
+def form_kkt(problem, D):  # Reduced system after eliminating ds and dz.
     P, _, A, _, G, _ = problem
     m_eq = A.shape[0]
     top = jnp.concatenate([P + G.T @ (D[:, None] * G), A.T], axis=1)
@@ -153,8 +146,7 @@ def form_kkt(problem, D):
     return jnp.concatenate([top, bottom], axis=0)
 
 
-def solve_direction(K, lu, G, z, s, D, r_dual, r_eq, r_ineq, c):
-    """Recover one Newton direction from the shared LU factor."""
+def solve_direction(K, lu, G, z, s, D, r_dual, r_eq, r_ineq, c):  # Shared-LU Newton direction.
     n = r_dual.shape[0]
     w = (c + z * r_ineq) / s
     rhs = jnp.concatenate([-r_dual - G.T @ w, -r_eq])
@@ -166,14 +158,12 @@ def solve_direction(K, lu, G, z, s, D, r_dual, r_eq, r_ineq, c):
     return dx, dy, dz, ds, lin_res
 
 
-def fraction_to_boundary(v, dv, tau):
-    """Return the fraction-to-boundary step length."""
+def fraction_to_boundary(v, dv, tau):  # Keep v + alpha*dv strictly positive.
     ratios = jnp.where(dv < 0, -v / dv, jnp.inf)
     return jnp.minimum(1.0, tau * jnp.min(ratios))
 
 
-def step(problem, state, eps_abs, eps_rel):
-    """One pure Mehrotra predictor-corrector iteration."""
+def step(problem, state, eps_abs, eps_rel):  # Pure Mehrotra step ready for jit.
     x, y, z, s = state.x, state.y, state.z, state.s
     m_in = problem.h.shape[0]
 
@@ -224,7 +214,7 @@ def step(problem, state, eps_abs, eps_rel):
     return new_state, trace
 
 
-def _solve_loop(problem, state, eps_abs, eps_rel, max_iter):
+def _solve_loop(problem, state, eps_abs, eps_rel, max_iter):  # Fixed-shape device loop.
     def body(st):
         new_st, _ = step(problem, st, eps_abs, eps_rel)  # same step; the trace is unused here
         return new_st
@@ -243,7 +233,7 @@ _step = jax.jit(step)
 _solve_loop_jit = jax.jit(_solve_loop)
 
 
-def _check_problem(problem, eps_abs, eps_rel, max_iter):
+def _check_problem(problem, eps_abs, eps_rel, max_iter):  # Validate the supported QP form.
     P, q, A, b, G, h = problem
     n, m_eq, m_in = q.shape[0], b.shape[0], h.shape[0]
     assert P.shape == (n, n) and A.shape == (m_eq, n) and G.shape == (m_in, n)
@@ -252,7 +242,7 @@ def _check_problem(problem, eps_abs, eps_rel, max_iter):
     assert eps_abs > 0 and eps_rel >= 0 and max_iter >= 1
 
 
-def _result(state):
+def _result(state):  # Convert device state to the host-facing result.
     iterations = int(state.iteration)  # host conversion; also synchronizes the device
     return Result(x=state.x, y=state.y, z=state.z, s=state.s,
                   status="solved" if bool(state.converged) else "max_iter",
@@ -260,11 +250,10 @@ def _result(state):
                   newton_solves=2 * iterations)
 
 
-class Solver:
-    """Dense primal-dual QP solver."""
+class Solver:  # Host API around the pure JAX functions above.
 
     def __init__(self, P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8,
-                 max_iter=50):
+                 max_iter=50):  # Convert and validate fixed problem data.
         problem = Problem(*(jnp.asarray(v, dtype=jnp.float64)
                             for v in (P, q, A, b, G, h)))
         _check_problem(problem, eps_abs, eps_rel, max_iter)
@@ -275,15 +264,13 @@ class Solver:
         self.eps_rel = float(eps_rel)
         self.max_iter = int(max_iter)
 
-    def solve(self):
-        """Solve with a compiled JAX loop."""
+    def solve(self):  # Run the compiled lax.while_loop.
         state = init_state(self.problem)
         state = _solve_loop_jit(self.problem, state, self.eps_abs,
                                 self.eps_rel, self.max_iter)
         return _result(state)
 
-    def trace(self):
-        """Solve while retaining every iteration."""
+    def trace(self):  # Record the same jitted step from a Python loop.
         state = init_state(self.problem)
         steps = []
         # bool() forces device-to-host sync: loop control needs a concrete value.

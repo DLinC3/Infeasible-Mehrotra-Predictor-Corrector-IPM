@@ -82,7 +82,7 @@ final KKT residual: 8.47e-10
 
 ## Project structure
 
-1. [`barrierqp.py`](barrierqp.py) (297 lines) contains the `Solver` facade,
+1. [`barrierqp.py`](barrierqp.py) (284 lines) contains the `Solver` facade,
    residuals, reduced KKT matrix, one LU
    factorization, affine solve, $\mu_{\mathrm{aff}}$ and $\sigma$, corrector
    solve, fraction-to-boundary steps, stop test.
