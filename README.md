@@ -35,19 +35,17 @@ NVIDIA system, install the optional CUDA backend with `uv sync --extra cuda`.
 
 barrierQP accepts the standard-form quadratic program
 
-$$
+```math
 \begin{aligned}
-\underset{x}{\operatorname{minimize}} \quad
-    & \frac{1}{2}x^\top P x + q^\top x \\
-\operatorname{subject\ to} \quad
-    & A x = b, \\
-    & G x \leq h,
+\min_x \quad & \frac{1}{2}x^\top P x + q^\top x \\
+\text{subject to} \quad & A x = b, \\
+                         & G x \leq h.
 \end{aligned}
-$$
+```
 
-where $P \succ 0$. Inequalities use slacks $s=h-Gx>0$, equality duals $y$,
-and inequality duals $z>0$. The implementation permits zero equality rows but
-requires at least one inequality.
+where $P \succ 0$. Inequalities use positive slacks $s=h-Gx$, equality duals
+$y$, and positive inequality duals $z$. The implementation permits zero
+equality rows but requires at least one inequality.
 
 ## Main features
 
@@ -79,18 +77,18 @@ Read the files in this order:
 
 At an iterate $(x,y,z,s)$, the KKT residuals and average complementarity are
 
-$$
+```math
 \begin{aligned}
 r_{\mathrm{dual}} &= Px+q+A^\top y+G^\top z, \\
 r_{\mathrm{eq}} &= Ax-b, \\
 r_{\mathrm{ineq}} &= Gx+s-h, \\
 \mu &= \frac{s^\top z}{m_{\mathrm{ineq}}}.
 \end{aligned}
-$$
+```
 
 For a complementarity right-hand side $c$, the reference solves
 
-$$
+```math
 \begin{bmatrix}
 P & A^\top & G^\top & 0 \\
 A & 0 & 0 & 0 \\
@@ -107,12 +105,12 @@ G & 0 & 0 & I \\
 -r_{\mathrm{ineq}} \\
 c
 \end{bmatrix},
-$$
+```
 
 where $S=\operatorname{diag}(s)$ and $Z=\operatorname{diag}(z)$. The optimized
 path eliminates $\Delta s$ and $\Delta z$. Define
 
-$$
+```math
 D=\operatorname{diag}(z\oslash s),
 \qquad
 K=
@@ -120,11 +118,11 @@ K=
 P+G^\top D G & A^\top \\
 A & 0
 \end{bmatrix}.
-$$
+```
 
 For each Newton right-hand side, it computes
 
-$$
+```math
 \begin{aligned}
 w &= (c+z\odot r_{\mathrm{ineq}})\oslash s, \\
 K
@@ -137,12 +135,12 @@ K
 \Delta z &= D G\Delta x+w, \\
 \Delta s &= -r_{\mathrm{ineq}}-G\Delta x.
 \end{aligned}
-$$
+```
 
 Here $\odot$ and $\oslash$ denote elementwise multiplication and division. The
 same LU factors of $K$ answer two questions in chronological order:
 
-$$
+```math
 \begin{aligned}
 c_{\mathrm{aff}} &= -s\odot z, \\
 \mu_{\mathrm{aff}}
@@ -155,24 +153,23 @@ c_{\mathrm{corr}}
     &= -s\odot z+\sigma\mu\mathbf{1}
        -\Delta s_{\mathrm{aff}}\odot\Delta z_{\mathrm{aff}}.
 \end{aligned}
-$$
+```
 
 The accepted primal and dual steps use the fraction-to-boundary rule
 
-$$
+```math
 \alpha(v,\Delta v;\tau)
-=\min\!\left(1,
-  \tau\min_{i:\,\Delta v_i<0}\frac{-v_i}{\Delta v_i}\right),
+=\min\left(1,
+  \tau\min_{i:\Delta v_i<0}\frac{-v_i}{\Delta v_i}\right),
 \qquad \tau=0.99,
-$$
+```
 
 applied separately to $(s,\Delta s)$ and $(z,\Delta z)$. This preserves strict
 positivity of every accepted slack and inequality dual.
 
-Termination checks original-coordinate absolute-plus-relative tolerances for
-$\max(\lVert r_{\mathrm{eq}}\rVert_\infty,
-\lVert r_{\mathrm{ineq}}\rVert_\infty)$,
-$\lVert r_{\mathrm{dual}}\rVert_\infty$, and $s^\top z$.
+Termination uses original-coordinate absolute-plus-relative tolerances for the
+equality, inequality, and dual residuals, together with the complementarity
+$s^\top z$.
 
 ### JAX implementation
 
