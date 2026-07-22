@@ -1,24 +1,27 @@
 # barrierQP
 
-barrierQP solves dense, strictly convex quadratic programs with equality and
-inequality constraints using Mehrotra's primal-dual predictor-corrector method.
-It is intended for readers who want a compact, modifiable implementation of
-interior-point iterations, KKT elimination, and factorization reuse in JAX.
-The solver, full-system reference, correctness tests, and central-path example
-are complete and have been checked on CPU and CUDA; this is an educational
-research implementation, not a production solver.
+A tiny JAX solver for dense, strictly convex quadratic programs with equality
+and inequality constraints. It implements Mehrotra's primal-dual
+predictor-corrector method: each iteration reduces the four-block Newton
+system, factors one KKT matrix, and reuses it for the affine and corrector
+directions.
+
+The core solver is 275 lines. A 140-line full-system implementation checks the
+eliminated directions, while the central-path example reaches a known boundary
+optimum in 6 iterations with 6 factorizations and 12 Newton solves. The same
+tests pass on CPU and CUDA.
 
 ## Quick start
 
-Python 3.12 and [uv](https://docs.astral.sh/uv/) are required.
+Python 3.12 and [uv](https://docs.astral.sh/uv/) are required. From the
+repository root:
 
 ```bash
-uv sync
 uv run python central_path.py
 ```
 
-The example prints one predictor-corrector ledger row per iteration. A
-representative CPU run ends with:
+The example prints one predictor-corrector ledger row per iteration and ends
+with:
 
 ```text
 6 iterations, 6 factorizations, 12 Newton solves
@@ -55,8 +58,8 @@ equality rows but requires at least one inequality.
 - explicit affine prediction, $\mu_{\mathrm{aff}}$, centering parameter
   $\sigma$, corrector, and fraction-to-boundary steps;
 - one pure step shared by a compiled `jax.lax.while_loop` and a host-side trace;
-- direction-by-direction and trajectory-by-trajectory validation against the
-  reference, followed by an OSQP final-point check.
+- direction-by-direction and trajectory-by-trajectory comparisons with the
+  full system, followed by an OSQP final-point comparison.
 
 ## Project structure
 
@@ -69,9 +72,9 @@ Read the files in this order:
    sides, and supplies the compiled and traced solve paths.
 3. [`central_path.py`](central_path.py) (77 lines) runs a fixed two-dimensional
    problem with a known boundary optimum and prints the chronological ledger.
-4. [`test.py`](test.py) (158 lines) contains the rational first-step audit,
-   direction and trajectory comparisons, JAX checks, positivity checks, count
-   checks, and OSQP oracle.
+4. [`test.py`](test.py) (158 lines) contains the rational first-step
+   derivation, direction and trajectory comparisons, JAX checks, positivity
+   checks, count checks, and OSQP comparison.
 
 ## Design
 
@@ -183,11 +186,10 @@ The normal solve runs the step in a fixed-shape `lax.while_loop`
 ([`barrierqp.py:227`](barrierqp.py#L227)). `solve_trace` calls the identical
 jitted step from a Python loop and converts the stop flag to a Python `bool` at
 the explicit device-to-host boundary ([`barrierqp.py:272`](barrierqp.py#L272)).
-No differentiation rule for the solver is defined or claimed.
 
 ## Validation
 
-Run the compact correctness suite on CPU and on the default JAX device:
+Run the comparisons on CPU and on the default JAX device:
 
 ```bash
 JAX_PLATFORMS=cpu uv run python test.py
@@ -219,14 +221,10 @@ positivity, and the final objective, solution, and KKT residuals with OSQP.
   embedding, scaling, regularization, or iterative refinement;
 - no sparse or OCP structure, cone API, warm start, or alternative
   initialization;
-- no autodiff layer, custom GPU kernel, multi-device execution, or production
-  performance guarantee;
+- no autodiff layer, custom GPU kernel, multi-device execution, or sparse
+  performance path;
 - factorization failures propagate from JAX; the only solver outcomes are
   `solved` and `max_iter`.
-
-No correctness issue is known for the documented problem class. Behavior near
-degenerate solutions or outside the stated rank and scaling assumptions is not
-characterized as a production solver status.
 
 ## References
 
@@ -235,15 +233,13 @@ characterized as a production solver status.
   centering heuristic, and second-order corrector.
 - [Frison and Diehl, *HPIPM*](https://arxiv.org/abs/2003.02547) for the delta
   formulation, slack/dual elimination, residual ledger, and factor reuse.
-- [Google DeepMind's QTQP implementation at the inspected
-  commit](https://github.com/google-deepmind/qtqp/tree/2d28ec9b019448c3621527a16930dbaccb5ddc8b)
+- [Google DeepMind's QTQP](https://github.com/google-deepmind/qtqp)
   for chronological iteration structure and complementarity diagnostics.
-- [OSQP](https://arxiv.org/abs/1711.08013) as the external final-point oracle.
+- [OSQP](https://arxiv.org/abs/1711.08013) for the final-point comparison.
 - [JAX documentation](https://docs.jax.dev/) and
-  [QPAX explicit PDIP at the inspected commit](https://github.com/qpax-solver/qpax/tree/a014149ffc632d5ea0b1090f98d53e16e874c5c4)
-  for public factor/solve and compiled-loop patterns.
+  [QPAX](https://github.com/qpax-solver/qpax) for factor/solve and compiled-loop
+  patterns in JAX.
 
 ## License
 
-No license file is currently included. Choose a license before redistribution
-or publication.
+No license file is currently included.
