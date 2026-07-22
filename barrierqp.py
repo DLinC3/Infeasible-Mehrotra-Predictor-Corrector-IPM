@@ -1,18 +1,4 @@
-"""barrierQP: one KKT factorization, two Newton questions.
-
-Infeasible-start Mehrotra predictor-corrector for the dense strictly convex QP
-
-    minimize    1/2 x.T P x + q.T x
-    subject to  A x = b,  G x <= h        (slack s = h - G x > 0, dual z > 0)
-
-Each iteration eliminates (ds, dz) from the four-block Newton system, factors
-the reduced KKT matrix once with LU, and asks that single factorization two
-questions: the affine predictor (where would pure Newton go?) and the centered
-corrector (where should we actually go, given how much complementarity the
-predictor would keep?). central_path.ipynb answers both questions with fresh
-full four-block solves; this module must match them while doing one factor per
-iteration.
-"""
+"""A tiny JAX implementation of Mehrotra's predictor-corrector QP solver."""
 
 from typing import NamedTuple
 
@@ -27,8 +13,7 @@ TAU = 0.99  # fixed fraction-to-boundary damping for accepted steps
 
 
 class Problem(NamedTuple):
-    """Fixed QP data. A NamedTuple of arrays is a 'pytree': JAX transforms
-    see through it, so a whole problem can cross the jit boundary as one value."""
+    """Fixed QP data."""
     P: jax.Array  # (n, n) symmetric positive definite
     q: jax.Array  # (n,)
     A: jax.Array  # (m_eq, n), m_eq may be 0
@@ -38,8 +23,7 @@ class Problem(NamedTuple):
 
 
 class State(NamedTuple):
-    """One iterate. JAX arrays are immutable, so a step returns a new State
-    instead of mutating; every leaf keeps one fixed shape/dtype for the loop."""
+    """Primal-dual iterate."""
     x: jax.Array
     y: jax.Array
     z: jax.Array
@@ -49,7 +33,7 @@ class State(NamedTuple):
 
 
 class StepTrace(NamedTuple):
-    """Everything one iteration computed, in causal order, for inspection."""
+    """Named values from one iteration."""
     iteration: jax.Array
     x: jax.Array
     y: jax.Array
@@ -80,8 +64,7 @@ class StepTrace(NamedTuple):
 
 
 class Trace(NamedTuple):
-    """A whole run's StepTrace fields stacked with a leading iteration axis,
-    so trace.x[k] is iteration k's iterate and trace.mu is the mu sequence."""
+    """Iteration records stacked along the leading axis."""
     iteration: jax.Array
     x: jax.Array
     y: jax.Array
@@ -127,7 +110,7 @@ def inf_norm(v):
 
 
 def init_state(problem):
-    """Deterministic interior start: x=0, y=0, unit positive s and z."""
+    """Return the fixed positive starting point."""
     n, m_eq, m_in = problem.q.shape[0], problem.b.shape[0], problem.h.shape[0]
     return State(x=jnp.zeros(n), y=jnp.zeros(m_eq),
                  z=jnp.ones(m_in), s=jnp.ones(m_in),
@@ -144,7 +127,7 @@ def residuals(problem, x, y, z, s):
 
 
 def tolerances(problem, x, y, z, s, eps_abs, eps_rel):
-    """Absolute-plus-relative scales built from the terms forming each residual."""
+    """Absolute-plus-relative stopping thresholds."""
     P, q, A, b, G, h = problem
     eps_p = eps_abs + eps_rel * jnp.max(jnp.array(
         [inf_norm(A @ x), inf_norm(b), inf_norm(G @ x), inf_norm(s), inf_norm(h)]))
@@ -162,7 +145,7 @@ def stop_test(problem, x, y, z, s, eps_abs, eps_rel):
 
 
 def form_kkt(problem, D):
-    """Reduced KKT matrix after eliminating (ds, dz) from the four-block system."""
+    """Reduced KKT matrix after eliminating slack directions."""
     P, _, A, _, G, _ = problem
     m_eq = A.shape[0]
     top = jnp.concatenate([P + G.T @ (D[:, None] * G), A.T], axis=1)
@@ -171,12 +154,7 @@ def form_kkt(problem, D):
 
 
 def solve_direction(K, lu, G, z, s, D, r_dual, r_eq, r_ineq, c):
-    """Recover a full Newton direction from one reduced solve.
-
-    c = -s*z + target - correction is the complementarity row's RHS. The
-    elimination is elementwise division by s and z (diagonal matrices), never
-    a formed matrix inverse; the only linear solve reuses the LU factor.
-    """
+    """Recover one Newton direction from the shared LU factor."""
     n = r_dual.shape[0]
     w = (c + z * r_ineq) / s
     rhs = jnp.concatenate([-r_dual - G.T @ w, -r_eq])
@@ -189,14 +167,13 @@ def solve_direction(K, lu, G, z, s, D, r_dual, r_eq, r_ineq, c):
 
 
 def fraction_to_boundary(v, dv, tau):
-    """Largest alpha in [0,1] with v + alpha*dv staying strictly positive
-    (up to fraction tau); this is what preserves s > 0 and z > 0 forever."""
+    """Return the fraction-to-boundary step length."""
     ratios = jnp.where(dv < 0, -v / dv, jnp.inf)
     return jnp.minimum(1.0, tau * jnp.min(ratios))
 
 
 def step(problem, state, eps_abs, eps_rel):
-    """One chronological Mehrotra iteration; pure, so jit can stage it."""
+    """One pure Mehrotra predictor-corrector iteration."""
     x, y, z, s = state.x, state.y, state.z, state.s
     m_in = problem.h.shape[0]
 
@@ -284,13 +261,7 @@ def _result(state):
 
 
 class Solver:
-    """Host-side facade over the pure JAX core.
-
-    Construction converts and validates the problem data once; the instance
-    then holds only the immutable Problem pytree and scalar configuration.
-    Solver never enters jit and is never mutated by a solve: both methods
-    hand all numerical state to the module-level transformed functions.
-    """
+    """Dense primal-dual QP solver."""
 
     def __init__(self, P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8,
                  max_iter=50):
@@ -305,18 +276,15 @@ class Solver:
         self.max_iter = int(max_iter)
 
     def solve(self):
-        """Compiled solve: the fixed-shape while_loop around the one pure step."""
+        """Solve with a compiled JAX loop."""
         state = init_state(self.problem)
-        assert bool(jnp.all(state.s > 0) and jnp.all(state.z > 0))
         state = _solve_loop_jit(self.problem, state, self.eps_abs,
                                 self.eps_rel, self.max_iter)
         return _result(state)
 
     def trace(self):
-        """Explanatory solve: the same jitted step driven from a Python loop,
-        returning every iteration's record stacked along a leading axis."""
+        """Solve while retaining every iteration."""
         state = init_state(self.problem)
-        assert bool(jnp.all(state.s > 0) and jnp.all(state.z > 0))
         steps = []
         # bool() forces device-to-host sync: loop control needs a concrete value.
         while not bool(state.converged) and int(state.iteration) < self.max_iter:
