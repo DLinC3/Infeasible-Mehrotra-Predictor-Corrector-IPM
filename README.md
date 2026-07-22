@@ -13,8 +13,8 @@ solves — and re-derives every correctness claim it prints.
 
 ![Predictor and corrector on the pentagon](assets/predict_correct.png)
 
-Orange is the affine prediction and blue is the accepted centered step, both
-computed from the same factorization.
+Orange is the affine Newton proposal and blue is the accepted corrector path,
+both computed from the same factorization.
 
 ## Quick start
 
