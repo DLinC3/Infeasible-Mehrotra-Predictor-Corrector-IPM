@@ -9,8 +9,9 @@ Each iteration eliminates (ds, dz) from the four-block Newton system, factors
 the reduced KKT matrix once with LU, and asks that single factorization two
 questions: the affine predictor (where would pure Newton go?) and the centered
 corrector (where should we actually go, given how much complementarity the
-predictor would keep?). reference.py answers both questions with fresh full
-four-block solves; this file must match it while doing one factor per iteration.
+predictor would keep?). central_path.ipynb answers both questions with fresh
+full four-block solves; this module must match them while doing one factor per
+iteration.
 """
 
 from typing import NamedTuple
@@ -314,33 +315,15 @@ class Solver:
     def trace(self):
         """Explanatory solve: the same jitted step driven from a Python loop,
         returning every iteration's record stacked along a leading axis."""
-        state, steps = _host_loop(self.problem, self.eps_abs, self.eps_rel,
-                                  self.max_iter)
+        state = init_state(self.problem)
+        assert bool(jnp.all(state.s > 0) and jnp.all(state.z > 0))
+        steps = []
+        # bool() forces device-to-host sync: loop control needs a concrete value.
+        while not bool(state.converged) and int(state.iteration) < self.max_iter:
+            state, step_trace = _step(self.problem, state, self.eps_abs,
+                                      self.eps_rel)
+            steps.append(step_trace)
         # Stacking each StepTrace leaf over iterations turns the list of
         # per-step pytrees into one Trace of (N, ...) arrays.
         trace = Trace(*jax.tree.map(lambda *leaves: jnp.stack(leaves), *steps))
         return _result(state), trace
-
-
-def _host_loop(problem, eps_abs, eps_rel, max_iter):
-    state = init_state(problem)
-    assert bool(jnp.all(state.s > 0) and jnp.all(state.z > 0))
-    steps = []
-    # bool() forces device-to-host sync: loop control needs a concrete value.
-    while not bool(state.converged) and int(state.iteration) < max_iter:
-        state, trace = _step(problem, state, eps_abs, eps_rel)
-        steps.append(trace)
-    return state, steps
-
-
-def solve(P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8, max_iter=50):
-    """Compatibility wrapper for the pre-facade API."""
-    return Solver(P, q, A, b, G, h, eps_abs, eps_rel, max_iter).solve()
-
-
-def solve_trace(P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8, max_iter=50):
-    """Compatibility wrapper returning the per-iteration StepTrace list."""
-    solver = Solver(P, q, A, b, G, h, eps_abs, eps_rel, max_iter)
-    state, steps = _host_loop(solver.problem, solver.eps_abs, solver.eps_rel,
-                              solver.max_iter)
-    return _result(state), steps
