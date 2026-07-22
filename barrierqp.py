@@ -48,7 +48,7 @@ class State(NamedTuple):
 
 
 class Trace(NamedTuple):
-    """Everything one iteration computed, in causal order, for tests and plots."""
+    """Everything one iteration computed, in causal order, for inspection."""
     iteration: jax.Array
     x: jax.Array
     y: jax.Array

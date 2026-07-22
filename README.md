@@ -5,10 +5,8 @@
 barrierQP is a tiny JAX primal-dual interior-point method for dense, strictly
 convex QPs. Each iteration factors one reduced KKT matrix, asks it for an
 affine predictor and a centered corrector, then takes the largest safe step.
-I wanted Mehrotra's loop to be visible end to end, including the residuals and
-every slack-dual pair.
-
-![the central path, traced by the tested solver](central_path.png)
+I wanted Mehrotra's loop to be visible end to end, including its residual
+ledger and centering controller.
 
 ## feel the magic
 
@@ -16,6 +14,8 @@ every slack-dual pair.
 uv sync
 uv run python central_path.py
 ```
+
+A representative CUDA run prints:
 
 ```text
 iter   primal      dual        mu         mu_aff      sigma      alpha_pri  alpha_dual  linear_res
@@ -28,13 +28,13 @@ iter   primal      dual        mu         mu_aff      sigma      alpha_pri  alph
 6 iterations, 6 factorizations, 12 Newton solves
 max full/reduced direction difference: 2.42e-15
 final KKT residual: 8.47e-10
-wrote central_path.png
 ```
 
 The demo asserts every claim before printing it — the factor/solve counts, the
 agreement of the reduced directions with a full-system reference, strict
-positivity of every recorded slack-dual pair, and the final KKT residual — and
-the PNG is drawn from the same trace the assertions checked.
+positivity of every recorded slack-dual pair, and the final KKT residual.
+The last few floating-point digits can vary across devices or separate XLA
+compilations; the assertions use tolerances, never bitwise equality.
 
 ## the files that matter
 
@@ -45,8 +45,8 @@ Read them in this order:
 2. [`barrierqp.py`](barrierqp.py) (275 lines) — the same iteration after
    eliminating `(ds, dz)`: one LU factorization, two right-hand sides, visible
    centering, and a compiled fixed-shape loop;
-3. [`central_path.py`](central_path.py) (183 lines) — the fixed 2D experiment
-   and its four-panel picture;
+3. [`central_path.py`](central_path.py) (77 lines) — the fixed 2D experiment
+   and its chronological predictor-corrector ledger;
 4. [`test.py`](test.py) (158 lines) — an exact-rational first-iteration audit,
    direction and trajectory parity, and the OSQP oracle.
 
@@ -115,27 +115,9 @@ whole solve stays on device (CPU or GPU, same program). The explanatory
 `solve_trace` drives the identical jitted step from a Python loop; converting
 `state.converged` to a Python `bool`
 ([`barrierqp.py:271`](barrierqp.py#L271)) is the explicit device-to-host
-synchronization point. Printing and plotting happen only after that boundary.
-JAX is the trusted ground here, not the subject: it does not make this IPM
-differentiable, and no gradient of the solver is defined or claimed.
-
-## read the picture
-
-- **A. primal path** — the feasible pentagon, objective contours, and the
-  accepted iterates walking to the boundary optimum; the dashed arrow is the
-  affine trial step and the solid arrow the accepted predictor-corrector step
-  of one iteration, both answered by the same reduced KKT factorization.
-- **B. KKT ledger** — primal, dual, and complementarity measures per
-  iteration against their absolute-plus-relative tolerances; the loop stops
-  the first time all three dip below their dotted lines.
-- **C. controller** — the dimensionless chain `mu_aff/mu -> sigma ->
-  alpha_primal, alpha_dual`, all in `[0, 1]`: the affine forecast decides how
-  much centering the corrector requests, and positivity decides how much of it
-  is accepted.
-- **D. complementarity** — each inequality's `(s_i, z_i)` trajectory in
-  log-log space with `s*z = mu` hyperbolas for scale: the active constraint
-  walks left (slack to zero, dual to `z* = 1`), the four inactive ones fall
-  straight down.
+synchronization point. Printing happens only after that boundary. JAX is the
+trusted ground here, not the subject: it does not make this IPM differentiable,
+and no gradient of the solver is defined or claimed.
 
 ## correctness
 
