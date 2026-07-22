@@ -47,7 +47,7 @@ Read them in this order:
    centering, and a compiled fixed-shape loop;
 3. [`central_path.py`](central_path.py) (183 lines) — the fixed 2D experiment
    and its four-panel picture;
-4. [`test.py`](test.py) (156 lines) — an exact-rational first-iteration audit,
+4. [`test.py`](test.py) (158 lines) — an exact-rational first-iteration audit,
    direction and trajectory parity, and the OSQP oracle.
 
 ## how it works
