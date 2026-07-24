@@ -24,7 +24,6 @@ packages = ["src/barrierqp"]
 # Optional: run the root notebook (barrier.ipynb).
 demo = [
     "jupyter>=1,<2",
-    "matplotlib>=3,<4",
 ]
 # Optional: comparison solvers for the local timing script (bench.py).
 bench = [

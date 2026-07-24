@@ -51,9 +51,19 @@ result.iterations, result.factorizations, result.newton_solves
 
 ## Notebook
 
-[`barrier.ipynb`](barrier.ipynb) solves a small 2-D pentagon, shows the feasible
-region, objective contours, and optimum, then re-solves with a different linear
-term. A small optional local timing script is included in `bench.py`.
+[`barrier.ipynb`](barrier.ipynb) solves the small 2-D pentagon above, reports the
+solution and the factorization counters, and re-solves with a different linear term:
+
+```bash
+uv run --group demo jupyter lab barrier.ipynb
+```
+
+A small optional local timing script is included in `bench.py`:
+
+```bash
+uv run --group bench python bench.py          # a few sizes
+uv run --group bench python bench.py --full   # more sizes
+```
 
 ## Limitations
 

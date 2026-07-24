@@ -17,7 +17,7 @@ class Problem(NamedTuple):  # Fixed arrays form a pytree that jit can traverse.
     q: jax.Array  # (n,)
     A: jax.Array  # (m_eq, n), m_eq may be 0
     b: jax.Array  # (m_eq,)
-    G: jax.Array  # (m_in, n), m_in >= 1
+    G: jax.Array  # (m_in, n), m_in may be 0
     h: jax.Array  # (m_in,)
 
 
