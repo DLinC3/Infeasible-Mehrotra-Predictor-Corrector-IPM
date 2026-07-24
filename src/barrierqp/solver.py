@@ -30,75 +30,15 @@ class State(NamedTuple):  # Primal-dual pytree carried by lax.while_loop.
     iteration: jax.Array  # int scalar; also the factorization count
 
 
-class StepTrace(NamedTuple):  # Named values exposed from one iteration.
-    iteration: jax.Array
-    x: jax.Array
-    y: jax.Array
-    z: jax.Array
-    s: jax.Array
-    r_eq: jax.Array
-    r_ineq: jax.Array
-    r_dual: jax.Array
-    mu: jax.Array
-    eps_primal: jax.Array
-    eps_dual: jax.Array
-    eps_gap: jax.Array
-    dx_aff: jax.Array
-    dy_aff: jax.Array
-    dz_aff: jax.Array
-    ds_aff: jax.Array
-    alpha_aff_primal: jax.Array
-    alpha_aff_dual: jax.Array
-    mu_aff: jax.Array
-    sigma: jax.Array
-    dx: jax.Array
-    dy: jax.Array
-    dz: jax.Array
-    ds: jax.Array
-    alpha_primal: jax.Array
-    alpha_dual: jax.Array
-    linear_residual: jax.Array
-
-
-class Trace(NamedTuple):  # Step records stacked along the iteration axis.
-    iteration: jax.Array
-    x: jax.Array
-    y: jax.Array
-    z: jax.Array
-    s: jax.Array
-    r_eq: jax.Array
-    r_ineq: jax.Array
-    r_dual: jax.Array
-    mu: jax.Array
-    eps_primal: jax.Array
-    eps_dual: jax.Array
-    eps_gap: jax.Array
-    dx_aff: jax.Array
-    dy_aff: jax.Array
-    dz_aff: jax.Array
-    ds_aff: jax.Array
-    alpha_aff_primal: jax.Array
-    alpha_aff_dual: jax.Array
-    mu_aff: jax.Array
-    sigma: jax.Array
-    dx: jax.Array
-    dy: jax.Array
-    dz: jax.Array
-    ds: jax.Array
-    alpha_primal: jax.Array
-    alpha_dual: jax.Array
-    linear_residual: jax.Array
-
-
 class Result(NamedTuple):  # Final solution and factor/solve counts.
     x: jax.Array
     y: jax.Array
     z: jax.Array
     s: jax.Array
-    status: str  # "solved" or "max_iter", nothing else
+    status: str  # solved | max_iter | numerical_error | invalid_problem
     iterations: int
-    factorizations: int  # = iterations: the step factors exactly once
-    newton_solves: int   # = 2 * iterations: affine + corrector per factor
+    factorizations: int  # = iterations on the barrier path; 1 for a direct solve
+    newton_solves: int   # = 2 * iterations on the barrier path; 1 for a direct solve
 
 
 def inf_norm(v):  # Infinity norm that also accepts an empty equality residual.
@@ -168,27 +108,24 @@ def step(problem, state, eps_abs, eps_rel):  # Pure Mehrotra step ready for jit.
     m_in = problem.h.shape[0]
 
     r_dual, r_eq, r_ineq, mu = residuals(problem, x, y, z, s)
-    eps_p, eps_d, eps_g = tolerances(problem, x, y, z, s, eps_abs, eps_rel)
 
     D = z / s
     K = form_kkt(problem, D)
     lu = lu_factor(K)  # the one factorization; both Newton questions below reuse it
 
     # Question 1, affine predictor: target = 0, correction = 0.
-    c_aff = -(s * z)
     dx_aff, dy_aff, dz_aff, ds_aff, _ = solve_direction(
-        K, lu, problem.G, z, s, D, r_dual, r_eq, r_ineq, c_aff)
+        K, lu, problem.G, z, s, D, r_dual, r_eq, r_ineq, -(s * z))
     alpha_aff_primal = fraction_to_boundary(s, ds_aff, 1.0)
     alpha_aff_dual = fraction_to_boundary(z, dz_aff, 1.0)
 
-    # Mehrotra centering: predicted complementarity decides sigma, visibly
-    # between the two solves.
+    # Mehrotra centering: predicted complementarity decides sigma, between the two solves.
     mu_aff = (s + alpha_aff_primal * ds_aff) @ (z + alpha_aff_dual * dz_aff) / m_in
     sigma = jnp.clip((mu_aff / mu) ** 3, 0.0, 1.0)
 
     # Question 2, centered corrector: target = sigma*mu, correction = ds_aff*dz_aff.
     c_corr = -(s * z) + sigma * mu - ds_aff * dz_aff
-    dx, dy, dz, ds, lin_res = solve_direction(
+    dx, dy, dz, ds, _ = solve_direction(
         K, lu, problem.G, z, s, D, r_dual, r_eq, r_ineq, c_corr)
     alpha_primal = fraction_to_boundary(s, ds, TAU)
     alpha_dual = fraction_to_boundary(z, dz, TAU)
@@ -200,24 +137,12 @@ def step(problem, state, eps_abs, eps_rel):  # Pure Mehrotra step ready for jit.
 
     # Stopping is judged only on the newly accepted iterate, never the raw start.
     done = stop_test(problem, x_new, y_new, z_new, s_new, eps_abs, eps_rel)
-    new_state = State(x_new, y_new, z_new, s_new, done, state.iteration + 1)
-    trace = StepTrace(
-        iteration=state.iteration, x=x, y=y, z=z, s=s,
-        r_eq=r_eq, r_ineq=r_ineq, r_dual=r_dual, mu=mu,
-        eps_primal=eps_p, eps_dual=eps_d, eps_gap=eps_g,
-        dx_aff=dx_aff, dy_aff=dy_aff, dz_aff=dz_aff, ds_aff=ds_aff,
-        alpha_aff_primal=alpha_aff_primal, alpha_aff_dual=alpha_aff_dual,
-        mu_aff=mu_aff, sigma=sigma,
-        dx=dx, dy=dy, dz=dz, ds=ds,
-        alpha_primal=alpha_primal, alpha_dual=alpha_dual,
-        linear_residual=lin_res)
-    return new_state, trace
+    return State(x_new, y_new, z_new, s_new, done, state.iteration + 1)
 
 
 def _solve_loop(problem, state, eps_abs, eps_rel, max_iter):  # Fixed-shape device loop.
     def body(st):
-        new_st, _ = step(problem, st, eps_abs, eps_rel)  # same step; the trace is unused here
-        return new_st
+        return step(problem, st, eps_abs, eps_rel)
 
     def cond(st):
         return jnp.logical_and(~st.converged, st.iteration < max_iter)
@@ -227,25 +152,68 @@ def _solve_loop(problem, state, eps_abs, eps_rel, max_iter):  # Fixed-shape devi
     return jax.lax.while_loop(cond, body, state)
 
 
-# Transforms are created once at import, not per solve: jit(step) stages the pure
-# step for the given shapes, and re-tracing on every call would defeat compilation.
-_step = jax.jit(step)
+# The pure loop is staged once at import; re-tracing on every call would defeat
+# compilation. The whole IPM iteration runs inside this single compiled program.
 _solve_loop_jit = jax.jit(_solve_loop)
 
 
-def _check_problem(problem, eps_abs, eps_rel, max_iter):  # Validate the supported QP form.
+def _validate(problem, eps_abs, eps_rel, max_iter):  # Host-boundary problem check.
     P, q, A, b, G, h = problem
-    n, m_eq, m_in = q.shape[0], b.shape[0], h.shape[0]
-    assert P.shape == (n, n) and A.shape == (m_eq, n) and G.shape == (m_in, n)
-    assert m_in >= 1, "barrierQP needs at least one inequality"
-    assert bool(jnp.allclose(P, P.T)), "P must be symmetric"
-    assert eps_abs > 0 and eps_rel >= 0 and max_iter >= 1
+    if q.ndim != 1:
+        return "q must be a vector"
+    n = q.shape[0]
+    if P.shape != (n, n):
+        return "P must be square of side len(q)"
+    if A.ndim != 2 or A.shape[1] != n:
+        return "A must be (m_eq, n)"
+    if b.shape != (A.shape[0],):
+        return "b must have one entry per equality row"
+    if G.ndim != 2 or G.shape[1] != n:
+        return "G must be (m_in, n)"
+    if h.shape != (G.shape[0],):
+        return "h must have one entry per inequality row"
+    if not all(bool(jnp.all(jnp.isfinite(v))) for v in problem):
+        return "problem data must be finite"
+    # Scale-aware symmetry: |P - P.T| <= atol + rtol*|P.T| tolerates float64
+    # roundoff asymmetry while rejecting a materially non-symmetric matrix.
+    if not bool(jnp.allclose(P, P.T, rtol=1e-8, atol=1e-12)):
+        return "P must be symmetric"
+    # Strict convexity is a precondition, not something the iteration detects:
+    # a failed Cholesky (NaN factor) means P is not meaningfully positive definite
+    # (this rejects indefinite and numerically singular P). Its O(n^3) cost is
+    # part of construction and is included in the benchmark's setup timing.
+    if not bool(jnp.all(jnp.isfinite(jnp.linalg.cholesky(P)))):
+        return "P must be positive definite"
+    if not (eps_abs > 0 and eps_rel >= 0 and max_iter >= 1):
+        return "eps_abs>0, eps_rel>=0, max_iter>=1 required"
+    return None
 
 
-def _result(state):  # Convert device state to the host-facing result.
+def _direct_solve(problem):  # Unconstrained / equality-only: one dense KKT solve.
+    # With no inequalities there is no barrier, no slack, and no dual z; the
+    # optimum is the single stationary point of [[P, A^T],[A, 0]] [x; y] = [-q; b].
+    P, q, A, b, G, h = problem
+    n, m_eq = q.shape[0], b.shape[0]
+    K = jnp.block([[P, A.T], [A, jnp.zeros((m_eq, m_eq))]])
+    rhs = jnp.concatenate([-q, b])
+    sol = lu_solve(lu_factor(K), rhs)  # the single factorization of this path
+    x, y = sol[:n], sol[n:]
+    rel_res = inf_norm(K @ sol - rhs) / (1.0 + inf_norm(rhs))
+    return x, y, jnp.zeros(0), jnp.zeros(0), rel_res
+
+
+def _result(state):  # Convert device state of the barrier path to a host result.
     iterations = int(state.iteration)  # host conversion; also synchronizes the device
-    return Result(x=state.x, y=state.y, z=state.z, s=state.s,
-                  status="solved" if bool(state.converged) else "max_iter",
+    # A blown-up KKT factor propagates NaN/Inf silently; never call that solved.
+    finite = bool(jnp.all(jnp.isfinite(state.x)) & jnp.all(jnp.isfinite(state.y))
+                  & jnp.all(jnp.isfinite(state.z)) & jnp.all(jnp.isfinite(state.s)))
+    if not finite:
+        status = "numerical_error"
+    elif bool(state.converged):
+        status = "solved"
+    else:
+        status = "max_iter"
+    return Result(x=state.x, y=state.y, z=state.z, s=state.s, status=status,
                   iterations=iterations, factorizations=iterations,
                   newton_solves=2 * iterations)
 
@@ -254,31 +222,41 @@ class Solver:  # Host API around the pure JAX functions above.
 
     def __init__(self, P, q, A, b, G, h, eps_abs=1e-8, eps_rel=1e-8,
                  max_iter=50):  # Convert and validate fixed problem data.
-        problem = Problem(*(jnp.asarray(v, dtype=jnp.float64)
-                            for v in (P, q, A, b, G, h)))
-        _check_problem(problem, eps_abs, eps_rel, max_iter)
-        self.problem = problem
+        self.problem = Problem(*(jnp.asarray(v, dtype=jnp.float64)
+                                 for v in (P, q, A, b, G, h)))
         # Plain host floats/ints: passed to jit as dynamic operands, so
         # changing a tolerance or the cap never triggers recompilation.
         self.eps_abs = float(eps_abs)
         self.eps_rel = float(eps_rel)
         self.max_iter = int(max_iter)
+        # Invalid data is surfaced as a returned status, not an exception, so
+        # callers always get a Result to inspect.
+        self._invalid_reason = _validate(self.problem, self.eps_abs,
+                                         self.eps_rel, self.max_iter)
 
-    def solve(self):  # Run the compiled lax.while_loop.
+    def _invalid_result(self):  # Explicit failure carrying no fake solution.
+        p = self.problem
+        n, m_eq, m_in = p.q.shape[0], p.b.shape[0], p.h.shape[0]
+        nan = jnp.nan
+        return Result(x=jnp.full(n, nan), y=jnp.full(m_eq, nan),
+                      z=jnp.full(m_in, nan), s=jnp.full(m_in, nan),
+                      status="invalid_problem", iterations=0,
+                      factorizations=0, newton_solves=0)
+
+    def _direct_result(self):  # No-inequality case: report the direct solve.
+        x, y, z, s, rel_res = _direct_solve(self.problem)
+        ok = (bool(jnp.all(jnp.isfinite(x))) and bool(jnp.all(jnp.isfinite(y)))
+              and float(rel_res) < 1e-6)  # a singular KKT leaves a large residual
+        return Result(x=x, y=y, z=z, s=s,
+                      status="solved" if ok else "numerical_error",
+                      iterations=1, factorizations=1, newton_solves=1)
+
+    def solve(self):  # Run the compiled lax.while_loop (or the direct solve).
+        if self._invalid_reason is not None:
+            return self._invalid_result()
+        if self.problem.h.shape[0] == 0:  # no inequalities: no barrier to iterate
+            return self._direct_result()
         state = init_state(self.problem)
         state = _solve_loop_jit(self.problem, state, self.eps_abs,
                                 self.eps_rel, self.max_iter)
         return _result(state)
-
-    def trace(self):  # Record the same jitted step from a Python loop.
-        state = init_state(self.problem)
-        steps = []
-        # bool() forces device-to-host sync: loop control needs a concrete value.
-        while not bool(state.converged) and int(state.iteration) < self.max_iter:
-            state, step_trace = _step(self.problem, state, self.eps_abs,
-                                      self.eps_rel)
-            steps.append(step_trace)
-        # Stacking each StepTrace leaf over iterations turns the list of
-        # per-step pytrees into one Trace of (N, ...) arrays.
-        trace = Trace(*jax.tree.map(lambda *leaves: jnp.stack(leaves), *steps))
-        return _result(state), trace

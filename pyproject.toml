@@ -1,10 +1,11 @@
 [project]
 name = "barrierqp"
-version = "0.0.0"
+version = "0.1.0"
 description = "One KKT factorization, two Newton questions."
 requires-python = ">=3.12,<3.15"
 dependencies = [
     "jax>=0.11.0,<0.12",
+    "numpy>=2,<3",
 ]
 
 [project.optional-dependencies]
@@ -12,12 +13,23 @@ cuda = [
     "jax[cuda13]>=0.11.0,<0.12; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
-[dependency-groups]
-notebook = [
-    "ipykernel>=6,<7",
-    "nbclient>=0.10,<1",
-    "osqp>=1.0,<2",
-]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.uv]
-package = false
+[tool.hatch.build.targets.wheel]
+packages = ["src/barrierqp"]
+
+[dependency-groups]
+# Optional: run the root notebook (barrier.ipynb).
+demo = [
+    "jupyter>=1,<2",
+    "matplotlib>=3,<4",
+]
+# Optional: comparison solvers for the local timing script (bench.py).
+bench = [
+    "scipy>=1.11",
+    "osqp>=1.0,<2",
+    "piqp>=0.4",
+    "clarabel>=0.9",
+]
