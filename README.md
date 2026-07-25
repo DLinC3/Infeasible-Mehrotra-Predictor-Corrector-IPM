@@ -82,8 +82,16 @@ The implementation is feature-complete for its intended scope.
 
 ## References
 
-- [Mehrotra, *On the Implementation of a Primal-Dual Interior Point Method*](https://epubs.siam.org/doi/10.1137/0802028)
-- [Frison and Diehl, *HPIPM*](https://arxiv.org/abs/2003.02547)
-- [JAX documentation](https://docs.jax.dev/)
+- [Mehrotra, *On the Implementation of a Primal-Dual Interior Point
+  Method*](https://epubs.siam.org/doi/10.1137/0802028) for the affine predictor,
+  centering heuristic, and second-order corrector.
+- [Frison and Diehl, *HPIPM*](https://arxiv.org/abs/2003.02547) for the delta
+  formulation, slack/dual elimination, residual ledger, and factor reuse.
+- [Google DeepMind's QTQP](https://github.com/google-deepmind/qtqp)
+  for chronological iteration structure and complementarity diagnostics.
+- [OSQP](https://arxiv.org/abs/1711.08013) for the final-point comparison.
+- [JAX documentation](https://docs.jax.dev/) and
+  [QPAX](https://github.com/qpax-solver/qpax) for factor/solve and compiled-loop
+  patterns in JAX.
 - [qpbenchmark](https://github.com/qpsolvers/qpbenchmark), a broader benchmark
   framework for quadratic-programming solvers.
