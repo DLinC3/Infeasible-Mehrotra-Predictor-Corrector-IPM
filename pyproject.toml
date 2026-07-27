@@ -21,9 +21,10 @@ build-backend = "hatchling.build"
 packages = ["src/barrierqp"]
 
 [dependency-groups]
-# Optional: run the root notebook (barrier.ipynb).
+# Optional: run the root notebook (Predictor-Corrector.ipynb).
 demo = [
     "jupyter>=1,<2",
+    "matplotlib>=3.8,<4",
 ]
 # Optional: comparison solvers for the local timing script (bench.py).
 bench = [
