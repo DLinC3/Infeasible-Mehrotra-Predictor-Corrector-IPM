@@ -117,3 +117,9 @@ finds the miss; the corrector repairs it without refactorizing the geometry.
   factor/solve and compiled-loop patterns.
 - [qpbenchmark](https://github.com/qpsolvers/qpbenchmark) if you want a real solver
   benchmark.
+
+## sibling
+
+[splitQP](https://github.com/denglinc/splitQP) is the same problem class from the other
+direction — proximal ADMM, where a single Cholesky serves every iteration and every
+member of a whole family of QPs.
